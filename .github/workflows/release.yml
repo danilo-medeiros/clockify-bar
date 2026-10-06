@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    name: Build and publish universal macOS app
+    needs: tests
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build and package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/package-release.sh "${RELEASE_TAG#v}"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          sed "s/VERSION/$release_version/g" docs/RELEASE_NOTES.md > "$RUNNER_TEMP/clockify-release-notes.md"
+          gh release create "$RELEASE_TAG" \
+            "dist/releases/$RELEASE_TAG/Clockify-Bar-$release_version-macOS-universal.zip" \
+            "dist/releases/$RELEASE_TAG/SHA256SUMS.txt" \
+            --verify-tag \
+            --title "Clockify Bar $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/clockify-release-notes.md" \
+            --generate-notes
